@@ -1,0 +1,374 @@
+// Outsider clubhouse membership — its own database, separate from SSS.
+// SSS reaches it only through /api/admin/* and /api/partner/* with an API key.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ApprovalMode {
+  AUTO
+  ADMIN
+}
+
+enum MemberStatus {
+  /// Email + password only: can book day passes, has not applied for membership.
+  ACCOUNT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+/// MATCHED: OCR read the typed ID off the card photo.
+/// MISMATCH_FLAGGED: 3 attempts failed; submitted anyway, always goes to admin review.
+enum OcrStatus {
+  MATCHED
+  MISMATCH_FLAGGED
+}
+
+enum MembershipStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum VisitKind {
+  DAY_USE
+  GUEST
+}
+
+enum VisitRequestStatus {
+  PENDING_REVIEW
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+enum PassStatus {
+  PENDING_REVIEW
+  PENDING_PAYMENT
+  ACTIVE
+  USED
+  EXPIRED
+  REJECTED
+  CANCELLED
+}
+
+enum HostKind {
+  MEMBER
+  SSS_RESIDENT
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELED
+}
+
+enum ApiKeyKind {
+  ADMIN
+  PARTNER
+}
+
+model Club {
+  id                   String       @id @default(uuid())
+  name                 String
+  /// The SSS community this clubhouse belongs to (used by the partner API).
+  sssCommunityId       String?      @unique
+  isActive             Boolean      @default(true)
+  currency             String       @default("EGP")
+  membershipApproval   ApprovalMode @default(ADMIN)
+  dayUseApproval       ApprovalMode @default(ADMIN)
+  /// Percent off the day-use price for a member's guest (0-100).
+  guestDiscountPercent Int          @default(0)
+  /// Guests per day for outsider members (SSS plans carry no outsider allowance).
+  outsiderGuestsPerDay Int          @default(0)
+  /// The SSS clubhouse facility whose plans / outsider entry fees this club sells.
+  sssFacilityId        String?
+  /// Last successful pull of plans & prices from SSS, and the last failure (if any).
+  catalogSyncedAt      DateTime?
+  catalogSyncError     String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  ageBands      AgeBand[]
+  plans         Plan[]
+  dayUseFees    DayUseFee[]
+  guestFees     GuestFee[]
+  members       Member[]
+  visitRequests VisitRequest[]
+  payments      Payment[]
+}
+
+/// Age windows used for pricing; together they must tile 0..∞ with no overlap.
+model AgeBand {
+  id       String  @id @default(uuid())
+  clubId   String
+  label    String
+  minAge   Int
+  /// null = no upper limit
+  maxAge   Int?
+  /// MembershipAgeBand.id in SSS when the catalog is synced from SSS.
+  sssId    String?
+  /// Removed upstream but still referenced by a sold card or pass.
+  archived Boolean @default(false)
+  club     Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  planPrices  PlanPrice[]
+  dayUseFees  DayUseFee[]
+  guestFees   GuestFee[]
+  memberships Membership[]
+  passes      Pass[]
+
+  @@unique([clubId, sssId])
+  @@index([clubId])
+}
+
+model Plan {
+  id           String   @id @default(uuid())
+  clubId       String
+  name         String
+  description  String?
+  termMonths   Int
+  /// Paid guests a member on this plan may bring per visit day.
+  guestsPerDay Int      @default(0)
+  isActive     Boolean  @default(true)
+  /// ClubhouseMembershipPlan.id in SSS when the catalog is synced from SSS.
+  sssId        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  prices      PlanPrice[]
+  memberships Membership[]
+
+  @@unique([clubId, sssId])
+  @@index([clubId])
+}
+
+/// A missing row means "not sold to this age band" — never free.
+model PlanPrice {
+  planId    String
+  ageBandId String
+  price     Decimal @db.Decimal(10, 2)
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  ageBand   AgeBand @relation(fields: [ageBandId], references: [id], onDelete: Cascade)
+
+  @@id([planId, ageBandId])
+}
+
+/// One day entry price per age band. A missing row means day use is not sold to that band.
+model DayUseFee {
+  clubId    String
+  ageBandId String
+  price     Decimal @db.Decimal(10, 2)
+  club      Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  ageBand   AgeBand @relation(fields: [ageBandId], references: [id], onDelete: Cascade)
+
+  @@id([clubId, ageBandId])
+}
+
+/// What a member's guest pays per age band (SSS entry fees, group GUEST). When a club has
+/// none, guests pay the day-use fee minus guestDiscountPercent.
+model GuestFee {
+  clubId    String
+  ageBandId String
+  price     Decimal @db.Decimal(10, 2)
+  club      Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  ageBand   AgeBand @relation(fields: [ageBandId], references: [id], onDelete: Cascade)
+
+  @@id([clubId, ageBandId])
+}
+
+/// Server-side record of national-ID photo checks, so the 3-try limit can't be reset by the browser.
+model IdCheck {
+  id             String    @id @default(uuid())
+  nationalIdHash String
+  attempts       Int       @default(0)
+  matched        Boolean   @default(false)
+  /// Latest uploaded card photo (relative to UPLOAD_DIR).
+  imagePath      String?
+  ocrName        String?
+  usedAt         DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([nationalIdHash])
+}
+
+model Member {
+  id             String       @id @default(uuid())
+  clubId         String
+  email          String       @unique
+  passwordHash   String
+  /// The membership application; all null while status is ACCOUNT.
+  phone          String?
+  fullName       String?
+  /// AES-256-GCM ciphertext; nationalIdHash is the lookup/uniqueness key.
+  nationalIdEnc  String?
+  nationalIdHash String?
+  dateOfBirth    DateTime?    @db.Date
+  idImagePath    String?
+  ocrStatus      OcrStatus?
+  status         MemberStatus @default(PENDING_REVIEW)
+  reviewNote     String?
+  reviewedAt     DateTime?
+  reviewedBy     String?
+  /// Bumped on password change to kill old sessions.
+  sessionVersion Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  club           Club         @relation(fields: [clubId], references: [id])
+
+  memberships   Membership[]
+  visitRequests VisitRequest[]
+
+  @@unique([clubId, nationalIdHash])
+  @@index([clubId, status])
+}
+
+model Membership {
+  id            String           @id @default(uuid())
+  memberId      String
+  planId        String
+  /// Snapshot at purchase so a birthday doesn't reprice a paid card.
+  ageBandId     String
+  ageAtPurchase Int
+  price         Decimal          @db.Decimal(10, 2)
+  status        MembershipStatus @default(PENDING_PAYMENT)
+  startsAt      DateTime?        @db.Date
+  endsAt        DateTime?        @db.Date
+  cardNumber    String?          @unique
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  member        Member           @relation(fields: [memberId], references: [id])
+  plan          Plan             @relation(fields: [planId], references: [id])
+  ageBand       AgeBand          @relation(fields: [ageBandId], references: [id])
+
+  payments Payment[]
+
+  @@index([memberId, status])
+}
+
+/// A day-use purchase (non-member) or a member's guest invitation; one pass per person.
+model VisitRequest {
+  id                String             @id @default(uuid())
+  clubId            String
+  kind              VisitKind
+  status            VisitRequestStatus @default(PENDING_REVIEW)
+  visitDate         DateTime           @db.Date
+  contactName       String
+  contactEmail      String?
+  contactPhone      String
+  /// sha256 of the link token a day-use visitor uses to view/pay (no account).
+  accessTokenHash   String?
+  /// The same token, encrypted, so later emails (approved, paid) can repeat the visitor's link.
+  accessTokenEnc    String?
+  hostKind          HostKind?
+  hostMemberId      String?
+  hostSssResidentId String?
+  hostSssName       String?
+  /// Day use: OCR result of the buyer's card photo.
+  ocrStatus         OcrStatus?
+  idImagePath       String?
+  total             Decimal            @db.Decimal(10, 2)
+  reviewNote        String?
+  reviewedAt        DateTime?
+  reviewedBy        String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  club              Club               @relation(fields: [clubId], references: [id])
+  hostMember        Member?            @relation(fields: [hostMemberId], references: [id])
+
+  passes   Pass[]
+  payments Payment[]
+
+  @@index([clubId, status])
+  @@index([hostMemberId, visitDate])
+  @@index([hostSssResidentId, visitDate])
+}
+
+model Pass {
+  id             String       @id @default(uuid())
+  requestId      String
+  kind           VisitKind
+  visitDate      DateTime     @db.Date
+  fullName       String
+  phone          String?
+  nationalIdEnc  String
+  nationalIdHash String
+  dateOfBirth    DateTime     @db.Date
+  ageBandId      String
+  price          Decimal      @db.Decimal(10, 2)
+  status         PassStatus   @default(PENDING_REVIEW)
+  /// Photo of this guest's ID card (or birth certificate), uploaded by the inviting member.
+  idImagePath    String?
+  /// Issued when paid; encoded in the QR shown at the gate.
+  qrToken        String?      @unique
+  usedAt         DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  request        VisitRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  ageBand        AgeBand      @relation(fields: [ageBandId], references: [id])
+
+  @@index([requestId])
+  @@index([visitDate, status])
+}
+
+model Payment {
+  id                    String        @id @default(uuid())
+  clubId                String
+  membershipId          String?
+  visitRequestId        String?
+  amountCents           Int
+  currency              String
+  status                PaymentStatus @default(PENDING)
+  provider              String        @default("PAYMOB")
+  providerOrderId       String?
+  providerTransactionId String?
+  checkoutUrl           String?
+  failureReason         String?
+  rawRequest            Json?
+  rawCallback           Json?
+  paidAt                DateTime?
+  expiresAt             DateTime
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  club                  Club          @relation(fields: [clubId], references: [id])
+  membership            Membership?   @relation(fields: [membershipId], references: [id])
+  visitRequest          VisitRequest? @relation(fields: [visitRequestId], references: [id])
+
+  @@index([membershipId])
+  @@index([visitRequestId])
+  @@index([providerOrderId])
+}
+
+/// Replay guard: one row per processed gateway transaction.
+model WebhookLedger {
+  id            String   @id @default(uuid())
+  provider      String
+  transactionId String
+  createdAt     DateTime @default(now())
+
+  @@unique([provider, transactionId])
+}
+
+model ApiKey {
+  id         String     @id @default(uuid())
+  name       String
+  kind       ApiKeyKind
+  /// First 8 chars of the key, for lookup; the rest is only stored hashed.
+  prefix     String     @unique
+  hash       String
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime   @default(now())
+}

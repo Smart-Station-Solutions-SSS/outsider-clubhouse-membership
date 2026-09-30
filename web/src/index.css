@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eef6f2;
+  --color-brand-100: #d3eadf;
+  --color-brand-200: #a9d4bf;
+  --color-brand-400: #4c9c7b;
+  --color-brand-500: #1f7a5a;
+  --color-brand-600: #16654a;
+  --color-brand-700: #0f4f39;
+  --color-brand-800: #0a3b2b;
+  --color-brand-900: #062a1f;
+  --color-brand-950: #041c15;
+  --color-gold-100: #f7eed9;
+  --color-gold-200: #eedcb0;
+  --color-gold-300: #e3c784;
+  --color-gold-400: #d8b770;
+  --color-gold-500: #c29a4a;
+  --color-gold-600: #a07c35;
+  --color-cream: #faf7f1;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --shadow-soft: 0 1px 2px rgb(6 42 31 / 0.04), 0 8px 24px -8px rgb(6 42 31 / 0.12);
+  --shadow-lift: 0 2px 4px rgb(6 42 31 / 0.05), 0 24px 48px -16px rgb(6 42 31 / 0.25);
+}
+
+body {
+  @apply bg-cream text-stone-800 antialiased;
+  /* Safety net against sideways scrolling on phones; `clip` keeps the sticky header working. */
+  overflow-x: clip;
+}
+
+/* iOS Safari gives date inputs an intrinsic width that can ignore `w-full`, and centres the value. */
+input[type="date"] {
+  display: block;
+  min-width: 0;
+}
+input[type="date"]::-webkit-date-and-time-value {
+  text-align: left;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+/* Soft glow + fine diagonal lines used on dark hero surfaces. */
+.bg-club {
+  background-color: var(--color-brand-900);
+  background-image:
+    radial-gradient(60rem 30rem at 85% -10%, rgb(216 183 112 / 0.18), transparent 60%),
+    radial-gradient(40rem 30rem at 0% 110%, rgb(31 122 90 / 0.45), transparent 60%),
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 14px);
+}
+
+/* Brushed-gold text for headlines. */
+.text-gold-foil {
+  background: linear-gradient(100deg, #f3dfa7 0%, #d8b770 35%, #f7e7b9 55%, #c29a4a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Membership-card surface. */
+.card-foil {
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgb(216 183 112 / 0.35), transparent 55%),
+    linear-gradient(135deg, #0f4f39 0%, #062a1f 60%, #041c15 100%);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-rise {
+  animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+}
