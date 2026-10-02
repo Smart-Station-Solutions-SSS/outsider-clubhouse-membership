@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { decideIdCheck } from '../src/lib/id-check';
 import { ageOn, birthDateFromNationalId, normalizeNationalId } from '../src/lib/national-id';
 import { inferOutcome, verifyHmac } from '../src/lib/paymob';
+import { mockCheckoutAllowed } from '../src/config';
 import { addMonths } from '../src/lib/dates';
 import { bandForAge, guestPriceCents, validateBands } from '../src/lib/pricing';
 
@@ -67,6 +68,11 @@ describe('ID photo check', () => {
     expect(decideIdCheck({ read: { kind: 'unreadable' }, priorAttempts: 2 }))
       .toMatchObject({ outcome: 'UNREADABLE', attemptsLeft: 0, manualEntry: true });
   });
+
+  it('skips the retries when the OCR service is down: a retake cannot help', () => {
+    expect(decideIdCheck({ read: { kind: 'unavailable' }, priorAttempts: 0 }))
+      .toMatchObject({ outcome: 'UNAVAILABLE', attempts: 3, attemptsLeft: 0, manualEntry: true });
+  });
 });
 
 describe('Paymob', () => {
@@ -92,5 +98,19 @@ describe('Paymob', () => {
     expect(inferOutcome({ ...tx, success: false }).status).toBe('FAILED');
     expect(inferOutcome({ ...tx, pending: true }).status).toBe('PENDING');
     expect(inferOutcome({ ...tx, is_voided: true }).status).toBe('CANCELED');
+  });
+});
+
+describe('mock checkout guard', () => {
+  it('runs only for a local web app outside production', () => {
+    expect(mockCheckoutAllowed(true, 'development', 'http://localhost:5174')).toBe(true);
+    expect(mockCheckoutAllowed(true, 'test', 'http://127.0.0.1:5174/')).toBe(true);
+  });
+
+  it('never runs on staging or production, whatever the flag and NODE_ENV say', () => {
+    expect(mockCheckoutAllowed(true, 'development', 'https://clubhouse-staging.ssseg.com')).toBe(false);
+    expect(mockCheckoutAllowed(true, 'development', 'http://localhost.evil.com')).toBe(false);
+    expect(mockCheckoutAllowed(true, 'production', 'http://localhost:5174')).toBe(false);
+    expect(mockCheckoutAllowed(false, 'development', 'http://localhost:5174')).toBe(false);
   });
 });

@@ -49,5 +49,14 @@ if (!parsed.success) {
 
 export const config = parsed.data;
 export const isProduction = config.NODE_ENV === 'production';
-/** The fake checkout is never available in production, whatever the flag says. */
-export const paymobMockEnabled = config.PAYMOB_MOCK && !isProduction;
+/**
+ * The fake checkout marks payments paid without charging a card, so it only runs for a web app on
+ * localhost — never in production, and never on staging even if NODE_ENV or the flag are left on.
+ */
+export function mockCheckoutAllowed(flag: boolean, nodeEnv: string, webPublicUrl: string): boolean {
+  const localSite = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(webPublicUrl.trim());
+  return flag && nodeEnv !== 'production' && localSite;
+}
+export const paymobMockEnabled = mockCheckoutAllowed(config.PAYMOB_MOCK, config.NODE_ENV, config.WEB_PUBLIC_URL);
+/** PAYMOB_MOCK was set but refused: worth a loud line at startup. */
+export const paymobMockRefused = config.PAYMOB_MOCK && !paymobMockEnabled;
