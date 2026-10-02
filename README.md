@@ -38,7 +38,7 @@ Tests: `cd server && npm test`. They use a separate `outsider-clubhouse-membersh
 |---|---|
 | `DATABASE_URL`, `TEST_DATABASE_URL` | Postgres connections |
 | `JWT_SECRET`, `PII_ENCRYPTION_KEY`, `PII_HASH_KEY` | Random values of at least 32 characters. **Never change `PII_*` after launch**: stored national IDs can then no longer be decrypted |
-| `GATES_OCR_URL`, `GATES_OCR_API_KEY` | ID-card OCR. The gates server only accepts listed IP addresses, so add the production server's IP to its allowlist. Without that, every ID goes to admin review, flagged |
+| `GATES_OCR_URL`, `GATES_OCR_API_KEY` | ID-card OCR. The gates server only accepts listed IP addresses, so add the production server's IP to its allowlist. Without that, every ID goes to admin review, flagged. Check the connection with `npm run ocr:check -- <card-photo.jpg>` |
 | `PAYMOB_*` | Same meaning as in SSS-Community-App. `PAYMOB_CARD_INTEGRATION_ID` must be set, and so must `PAYMOB_HMAC_SECRET` or `PAYMOB_API_KEY` |
 | `API_PUBLIC_BASE_URL` | Public URL of this API. Paymob calls `…/api/payments/paymob/webhook` and returns the buyer to `…/api/payments/paymob/return` |
 | `WEB_PUBLIC_URL` | Public URL of the website, used in email links and after payment |
@@ -59,7 +59,7 @@ Tests: `cd server && npm test`. They use a separate `outsider-clubhouse-membersh
 
 - Prices are set per plan × age band. A blank price means **not sold** to that age band, never free.
 - The age used for a membership is the age on the day it is bought. For a day pass or guest pass it is the age on the visit day.
-- In AUTO mode, only an ID that the OCR actually confirmed is approved automatically. After 3 failed OCR tries the person can type the number instead and submit, and the application goes to admin review, flagged. In ADMIN mode no OCR runs at all: the person types the number and uploads the photo, and the admin compares the two.
+- In AUTO mode, only an ID that the OCR actually confirmed is approved automatically. After 3 unreadable photos (or at once, if the OCR server is unreachable) the person can type the number instead and submit, and the application goes to admin review, flagged. In ADMIN mode no OCR runs at all: the person types the number and uploads the photo, and the admin compares the two.
 - A renewal starts the day after the current membership ends.
 - Guest limit: the plan's `guestsPerDay`, counted per host per visit day, including requests that are still unpaid.
 - A background job runs every 15 minutes. It expires memberships and passes, and cancels unpaid orders that are past their hold time or whose visit day has passed.

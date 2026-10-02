@@ -34,7 +34,8 @@ export const gatesOcrReader: IdOcrReader = {
     }
     if (response.status === 422) return { kind: 'unreadable' };
     if (!response.ok) {
-      console.warn(`[ocr] http ${response.status}`);
+      // A bare nginx 403 means the gates host's IP allowlist rejected this server, whatever the key.
+      console.warn(`[ocr] http ${response.status}${response.status === 403 ? ' (is this server IP-allowlisted on the gates host?)' : ''}`);
       return { kind: 'unavailable' };
     }
     const body = (await response.json().catch(() => null)) as

@@ -35,7 +35,8 @@ export function decideIdCheck(input: { read: OcrRead; priorAttempts: number }): 
       manualEntry: false,
     };
   }
-  const attempts = Math.min(input.priorAttempts + 1, MAX_ID_ATTEMPTS);
+  // OCR service down: a retake cannot help, so the person types the number straight away.
+  const attempts = input.read.kind === 'unavailable' ? MAX_ID_ATTEMPTS : Math.min(input.priorAttempts + 1, MAX_ID_ATTEMPTS);
   const attemptsLeft = Math.max(0, MAX_ID_ATTEMPTS - attempts);
   return {
     outcome: input.read.kind === 'unavailable' ? 'UNAVAILABLE' : 'UNREADABLE',

@@ -214,6 +214,19 @@ describe('membership applications', () => {
     expect(res.body.member).toMatchObject({ status: 'PENDING_REVIEW', ocrStatus: 'MISMATCH_FLAGGED' });
   });
 
+  it('AUTO mode with the OCR service down goes straight to the typed number, flagged', async () => {
+    await setMode({ membershipApproval: 'AUTO' });
+    ocrAnswer = { kind: 'unavailable' };
+    const check = await idCheck();
+    expect(check).toMatchObject({ outcome: 'UNAVAILABLE', canSubmit: false, manualEntry: true, attemptsLeft: 0 });
+    const typed = await request(app).post('/api/id-check').field('checkId', check.checkId).field('nationalId', ADULT);
+    expect(typed.body).toMatchObject({ canSubmit: true, nationalId: ADULT });
+    const res = await request(app).post('/api/auth/signup').send({
+      clubId, fullName: 'Ahmed Test', email: 'down@example.test', phone: '01001234567', password: 'password123', nationalId: ADULT, idCheckId: check.checkId,
+    });
+    expect(res.body.member).toMatchObject({ status: 'PENDING_REVIEW', ocrStatus: 'MISMATCH_FLAGGED' });
+  });
+
   it('refuses signup before the ID photo is read, and a plan not sold to the age band', async () => {
     ocrAnswer = { kind: 'unreadable' };
     const check = await idCheck();
